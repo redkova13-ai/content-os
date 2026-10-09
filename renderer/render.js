@@ -249,11 +249,18 @@ async function render(spec, outDir) {
       const s = spec.slides[i];
       const n = spec.template === 'T02' ? `${String(i + 1).padStart(2, '0')}/${String(N).padStart(2, '0')}` : `${i + 1}/${N}`;
       const html = `<!doctype html><html><head><meta charset="utf-8">${FONTS}<style>:root{--acc:${acc}}*{box-sizing:border-box;margin:0;padding:0}
-html,body{width:${W}px;height:${H}px;overflow:hidden}.s{position:relative;width:${W}px;height:${H}px;overflow:hidden}${T.css}</style></head><body>${T[s.layout](s, n)}</body></html>`;
+html,body{width:${W}px;height:${H}px;overflow:hidden}.s{position:relative;width:${W}px;height:${H}px;overflow:hidden}${T.css}${N === 1 ? '.arrow,.num,.count,.top .c{display:none}' : ''}</style></head><body>${T[s.layout](s, n)}</body></html>`;
       const tmp = path.join(outDir, `_slide.html`);
       fs.writeFileSync(tmp, html);
       await page.goto('file://' + tmp, { waitUntil: 'load' });
       await page.evaluate(() => document.fonts.ready);
+      // background photos are not always painted by 'load': decode them explicitly
+      await page.evaluate(() => Promise.all([...document.querySelectorAll('[style*="url("]')].map(el => {
+        const m = el.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/);
+        if (!m) return null;
+        const img = new Image(); img.src = m[1];
+        return img.decode().catch(() => null);
+      })));
       // shrink text block until it fits its box (not below 72%), report overflow otherwise
       const fit = await page.evaluate(grow => {
         const box = document.querySelector('.fit');
