@@ -268,8 +268,15 @@ html,body{width:${W}px;height:${H}px;overflow:hidden}.s{position:relative;width:
         let z = 1;
         const set = k => { z = +k.toFixed(2); inner.style.zoom = z; };
         while (!fits() && z > 0.72) set(z - 0.02);
-        // sparse slide: grow text up to 125% while it fills less than 80% of the box
-        if (z === 1 && grow) { while (z < 1.25 && h() <= rb.height * 0.8) set(z + 0.02); while (!fits() && z > 1) set(z - 0.02); }
+        // sparse slide: grow text up to 170% until it fills ~88% of the box, then spread blocks over the rest
+        if (z === 1 && grow) {
+          while (z < 1.7 && h() <= rb.height * 0.88) set(z + 0.02);
+          while (!fits() && z > 1) set(z - 0.02);
+          const gap = rb.height - h();
+          if (gap > 40 && inner.children.length > 1) {
+            inner.style.height = (rb.height / z) + 'px'; inner.style.display = 'flex'; inner.style.flexDirection = 'column'; inner.style.justifyContent = 'space-between';
+          }
+        }
         return { zoom: z, ok: fits() };
       }, s.layout !== 'cover');
       await page.waitForTimeout(150);
