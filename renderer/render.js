@@ -304,6 +304,9 @@ if (require.main === module) {
   if (!specPath || !outDir) { console.error('usage: node render.js spec.json out_dir'); process.exit(2); }
   render(JSON.parse(fs.readFileSync(specPath, 'utf8')), outDir).then(r => {
     for (const x of r) console.log(`${x.file}  ${x.layout}  scale=${x.text_scale}${x.fits ? '' : '  OVERFLOW'}`);
-    process.exit(r.every(x => x.fits) ? 0 : 1);
+    // every slide with her photo must show a whole, unobstructed face
+    const fc = require('child_process').spawnSync('python3', [path.join(__dirname, 'check_faces.py'), path.resolve(specPath), path.resolve(outDir)], { encoding: 'utf8' });
+    if (fc.stdout) process.stdout.write(fc.stdout.split('\n').filter(l => l.startsWith('slide')).map(l => 'face ' + l).join('\n') + '\n');
+    process.exit(r.every(x => x.fits) && fc.status === 0 ? 0 : 1);
   }).catch(e => { console.error(e.message); process.exit(e.blocked ? 3 : 1); });
 }
