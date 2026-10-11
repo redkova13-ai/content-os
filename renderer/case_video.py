@@ -1,7 +1,7 @@
 """Сборка кейсового Reels: сцены-картинки с медленным наездом, субтитры, плашка.
 
 python3 case_video.py SPEC.json OUT.mp4
-SPEC: {"scenes_dir": ..., "note": "...", "audio": optional path,
+SPEC: {"scenes_dir": ..., "note": "...", "audio": optional path, "subtitles": true, "cps": 15, "pad": 0,
        "scenes": [{"img": "s1.png", "text": "...", "start": opt sec, "end": opt sec}]}
 Без audio длительность сцены считается по длине текста (черновик для просмотра).
 """
@@ -28,14 +28,15 @@ def main(spec_path, out):
     sc = spec['scenes']
     if not all('start' in s for s in sc):
         t = 0.0
+        cps, pad = spec.get('cps', CPS), spec.get('pad', 0.0)
         for s in sc:
-            d = max(4.0, len(s['text']) / CPS)
+            d = max(4.0, len(s['text']) / cps) + pad
             s['start'], s['end'] = t, t + d; t += d
     total = sc[-1]['end']
     tmp = tempfile.mkdtemp()
     ass = os.path.join(tmp, 'subs.ass')
     ev = []
-    for s in sc:
+    for s in (sc if spec.get('subtitles', True) else []):
         cs = chunks(s['text']); dur = (s['end'] - s['start']) / len(cs)
         weights = [len(c) for c in cs]; tot = sum(weights); t = s['start']
         for c, w in zip(cs, weights):
