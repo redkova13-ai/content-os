@@ -287,7 +287,7 @@ def hosting_needs(plans):
             need['image.jpg'] = pl['image']
         if pl.get('cover'):
             need['cover.jpg'] = pl['cover']
-        if k == 'threads' and pl.get('video'):
+        if pl.get('video'):
             need['video' + pl['video'].suffix.lower()] = pl['video']
     return need
 
@@ -328,8 +328,14 @@ def ig_reels_container(pl, urls):
     data = pl['video'].read_bytes()
     r = requests.post(c['uri'], data=data, timeout=600,
                       headers={'offset': '0', 'file_size': str(len(data))})
-    if r.status_code >= 400:
+    if r.status_code < 400:
+        return c['id'], len(data)
+    # The proxy rejects large rupload bodies (502 seen above ~30 MB); let IG fetch the hosted copy.
+    vurl = urls.get('video' + pl['video'].suffix.lower())
+    if r.status_code < 500 or not vurl:
         raise Fail(f'rupload: HTTP {r.status_code} {r.text[:300]}')
+    params.pop('upload_type')
+    c = graph(IG_GRAPH, 'POST', f'{IG_USER}/media', video_url=vurl, **params)
     return c['id'], len(data)
 
 
