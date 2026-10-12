@@ -411,9 +411,16 @@ def vk(method, **params):
 
 
 def vk_upload(url, field, path):
-    with open(path, 'rb') as f:
-        r = requests.post(url, files={field: (path.name, f)}, timeout=300)
-    body = r.json()
+    for attempt in range(5):  # pu.vk.com sometimes answers 502 "temporarily unavailable"
+        with open(path, 'rb') as f:
+            r = requests.post(url, files={field: (path.name, f)}, timeout=300)
+        if r.status_code < 500:
+            break
+        time.sleep(5 * (attempt + 1))
+    try:
+        body = r.json()
+    except ValueError:
+        raise Fail(f'VK upload {path.name}: HTTP {r.status_code} {r.text[:120]!r}')
     if 'error' in body:
         raise Fail(f'VK upload {path.name}: {body}')
     return body
