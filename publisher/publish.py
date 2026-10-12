@@ -524,6 +524,8 @@ def main():
 
     report = {'asset_id': s['asset_id'], 'kind': s['kind'], 'mode': 'publish' if a.publish else 'dry_run',
               'platforms': {}}
+    if not s['platforms']:
+        sys.exit('BLOCKED: slot names no platform (add "ig": {} etc.), nothing was published')
     plans = {}
     for k in ORDER:
         if k not in s['platforms']:
