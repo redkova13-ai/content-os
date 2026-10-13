@@ -255,6 +255,13 @@ def plan_tg(s, cfg):
             steps.append(('sendPhoto', d, {'photo': img}))
         else:
             steps += [('sendPhoto', {'chat_id': TG_CHAT}, {'photo': img}), msg]
+    elif kind == 'reels' and cfg.get('cover_only'):
+        # Reels whose text repeats the video: Telegram gets the cover + text, no video.
+        img = need_file(s['cover'], 'media.cover', max_mb=10, exts={'.png', '.jpg', '.jpeg'})
+        if len(text) <= LIMITS['tg_caption']:
+            steps.append(('sendPhoto', {'chat_id': TG_CHAT, 'caption': text}, {'photo': img}))
+        else:
+            steps += [('sendPhoto', {'chat_id': TG_CHAT}, {'photo': img}), msg]
     elif kind == 'reels':
         v = need_file(s['video'], 'media.video', max_mb=50, exts={'.mp4'})
         # Without explicit size and a cover Telegram shows big videos squashed.
