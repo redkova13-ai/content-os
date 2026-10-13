@@ -221,6 +221,16 @@ def video_thumb(v):
         return None
 
 
+def jpeg_copy(img):
+    """JPEG copy of a cover in the temp dir (Telegram covers must be JPEG)."""
+    if img.suffix.lower() in ('.jpg', '.jpeg'):
+        return img
+    from PIL import Image
+    out = Path(tempfile.gettempdir()) / (img.stem + '_tgcover.jpg')
+    Image.open(img).convert('RGB').save(out, quality=90)
+    return out
+
+
 def plan_tg(s, cfg):
     kind = s['kind']
     text = read_text(cfg, 'text_file', 'text')
@@ -256,6 +266,10 @@ def plan_tg(s, cfg):
             th = video_thumb(v)
             if th:
                 vf['thumbnail'] = th
+        if s['cover']:
+            # Telegram shows this as the video's cover in the channel (Reels cover, same as IG).
+            vf['cv'] = jpeg_copy(need_file(s['cover'], 'media.cover', exts={'.png', '.jpg', '.jpeg'}))
+            vd['cover'] = 'attach://cv'
         steps.append(('sendVideo', vd, vf))
         if text:
             steps.append(msg)
