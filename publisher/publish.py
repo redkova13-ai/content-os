@@ -15,7 +15,7 @@ Auth: Instagram, Threads and VK tokens are injected by the network proxy and nev
 Telegram reads TELEGRAM_BOT_TOKEN from the environment; it is never printed.
 See publisher/README.md for the SLOT_JSON format.
 """
-import argparse, json, os, shutil, subprocess, sys, time
+import argparse, json, os, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
 
 import requests
@@ -197,6 +197,30 @@ def plan_vk(s, cfg):
     return {'kind': kind, 'text': text, 'photos': photos, 'document': doc, 'notes': notes}
 
 
+def video_meta(v):
+    """width/height/duration of a video via ffprobe, or {} if unavailable."""
+    try:
+        out = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                              '-show_entries', 'stream=width,height:format=duration',
+                              '-of', 'json', str(v)], capture_output=True, text=True, check=True).stdout
+        j = json.loads(out)
+        st = j['streams'][0]
+        return {'width': st['width'], 'height': st['height'], 'duration': int(float(j['format']['duration']))}
+    except Exception:
+        return {}
+
+
+def video_thumb(v):
+    """A small JPEG cover (Telegram wants <=320px, <=200KB) next to the video, or None."""
+    th = Path(tempfile.gettempdir()) / (v.stem + '_tgthumb.jpg')
+    try:
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-ss', '1', '-i', str(v), '-frames:v', '1',
+                        '-vf', 'scale=-2:320', '-q:v', '4', str(th)], check=True)
+        return th
+    except Exception:
+        return None
+
+
 def plan_tg(s, cfg):
     kind = s['kind']
     text = read_text(cfg, 'text_file', 'text')
@@ -223,7 +247,16 @@ def plan_tg(s, cfg):
             steps += [('sendPhoto', {'chat_id': TG_CHAT}, {'photo': img}), msg]
     elif kind == 'reels':
         v = need_file(s['video'], 'media.video', max_mb=50, exts={'.mp4'})
-        steps.append(('sendVideo', {'chat_id': TG_CHAT, 'supports_streaming': 'true'}, {'video': v}))
+        # Without explicit size and a cover Telegram shows big videos squashed.
+        vd = {'chat_id': TG_CHAT, 'supports_streaming': 'true'}
+        vf = {'video': v}
+        meta = video_meta(v)
+        if meta:
+            vd.update(meta)
+            th = video_thumb(v)
+            if th:
+                vf['thumbnail'] = th
+        steps.append(('sendVideo', vd, vf))
         if text:
             steps.append(msg)
     elif kind == 'text':
