@@ -35,7 +35,7 @@ VK_OWNER = -VK_GROUP
 TG_API = 'https://api.telegram.org'
 TG_CHAT = '-1002550616198'
 
-ORDER = ['ig', 'threads', 'vk', 'tg']
+ORDER = ['ig', 'fb', 'threads', 'vk', 'tg']
 KINDS = {'carousel', 'image', 'reels', 'story', 'text'}
 LIMITS = {'ig_caption': 2200, 'ig_hashtags': 30, 'tg_text': 4096, 'tg_caption': 1024,
           'vk_text': 16000, 'threads_text': 500}
@@ -292,7 +292,17 @@ def plan_tg(s, cfg):
     return {'kind': kind, 'steps': steps}
 
 
-PLANNERS = {'ig': plan_ig, 'threads': plan_threads, 'vk': plan_vk, 'tg': plan_tg}
+def plan_fb(s, cfg):
+    """Facebook Page post: same media and caption as Instagram (no stories, no hashtag limit)."""
+    if s['kind'] not in ('carousel', 'image', 'reels'):
+        raise Fail(f'Facebook has no "{s["kind"]}" post type here')
+    pl = _plan_ig(s, cfg)
+    if not pl['caption']:
+        raise Fail('Facebook post needs a caption')
+    return pl
+
+
+PLANNERS = {'ig': plan_ig, 'fb': plan_fb, 'threads': plan_threads, 'vk': plan_vk, 'tg': plan_tg}
 
 
 # ---------------------------------------------------------------- public hosting (repo raw)
@@ -331,7 +341,7 @@ def host(asset_id, files):
 def hosting_needs(plans):
     """Which local files Instagram/Threads must fetch by URL."""
     need = {}
-    for k in ('ig', 'threads'):
+    for k in ('ig', 'fb', 'threads'):
         pl = plans.get(k)
         if not pl:
             continue
@@ -423,6 +433,38 @@ def run_ig(pl, urls, publish):
                 rep['first_comment_error'] = str(e)
     elif pl.get('first_comment'):
         rep['first_comment'] = f'validated, {len(pl["first_comment"])} chars (posted only after a real publish)'
+    return rep
+
+
+FB_PAGE = '131906467328515'  # Психолог сексолог Татьяна Иргисцева (the page the token belongs to)
+
+
+def run_fb(pl, urls, publish):
+    rep = {'kind': pl['kind']}
+    if not publish:  # Facebook has no unpublished containers to validate against; check the files are hosted
+        need = [p.stem + '.jpg' for p in pl.get('slides', [])] or (['image.jpg'] if pl.get('image') else [])
+        if pl.get('video'):
+            need.append('video' + pl['video'].suffix.lower())
+        missing = [n for n in need if n not in urls]
+        if missing:
+            raise Fail(f'not hosted: {missing}')
+        rep['would_post'] = need
+        return rep
+    if pl['kind'] == 'carousel':
+        ids = [graph(IG_GRAPH, 'POST', f'{FB_PAGE}/photos', url=urls[p.stem + '.jpg'], published='false')['id']
+               for p in pl['slides']]
+        media = {f'attached_media[{i}]': json.dumps({'media_fbid': x}) for i, x in enumerate(ids)}
+        post = graph(IG_GRAPH, 'POST', f'{FB_PAGE}/feed', message=pl['caption'], **media)['id']
+    elif pl['kind'] == 'image':
+        post = graph(IG_GRAPH, 'POST', f'{FB_PAGE}/photos', url=urls['image.jpg'], message=pl['caption'])['post_id']
+    else:  # reels -> page video post
+        post = graph(IG_GRAPH, 'POST', f'{FB_PAGE}/videos', file_url=urls['video' + pl['video'].suffix.lower()],
+                     description=pl['caption'])['id']
+    rep['post_id'] = post
+    try:
+        rep['url'] = graph(IG_GRAPH, 'GET', post, fields='permalink_url').get('permalink_url')
+    except Fail:
+        rep['url'] = f'https://www.facebook.com/{post}'
     return rep
 
 
@@ -559,7 +601,7 @@ def main():
     ap.add_argument('slot')
     ap.add_argument('--publish', action='store_true', help='actually post (needs --approval)')
     ap.add_argument('--approval', help='GATE 2 approval JSON: {"asset_id":..., "approved_by":..., "approved_at":...}')
-    ap.add_argument('--only', help='comma list of platforms: ig,threads,vk,tg')
+    ap.add_argument('--only', help='comma list of platforms: ig,fb,threads,vk,tg')
     a = ap.parse_args()
 
     s = load_slot(a.slot)
@@ -614,10 +656,12 @@ def main():
             continue
         log(f'{k}: {"publishing" if a.publish else "dry run"} ...')
         try:
-            if k in ('ig', 'threads') and host_err:
+            if k in ('ig', 'fb', 'threads') and host_err:
                 raise Fail(host_err)
             if k == 'ig':
                 r = run_ig(plans[k], urls, a.publish)
+            elif k == 'fb':
+                r = run_fb(plans[k], urls, a.publish)
             elif k == 'threads':
                 r = run_threads(plans[k], urls, a.publish)
             elif k == 'vk':
