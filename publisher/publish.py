@@ -299,6 +299,11 @@ def plan_fb(s, cfg):
     pl = _plan_ig(s, cfg)
     if not pl['caption']:
         raise Fail('Facebook post needs a caption')
+    if cfg.get('attach_document'):
+        # Pages can't attach files via the API: the free file goes in as a public link at the end.
+        if not s['document']:
+            raise Fail('fb.attach_document is set but media.document is missing')
+        pl['document'] = need_file(s['document'], 'media.document', max_mb=50)
     return pl
 
 
@@ -353,6 +358,8 @@ def hosting_needs(plans):
             need['cover.jpg'] = pl['cover']
         if pl.get('video'):
             need['video' + pl['video'].suffix.lower()] = pl['video']
+        if pl.get('document'):
+            need[pl['document'].name] = pl['document']
     return need
 
 
@@ -441,6 +448,9 @@ FB_PAGE = '131906467328515'  # Психолог сексолог Татьяна 
 
 def run_fb(pl, urls, publish):
     rep = {'kind': pl['kind']}
+    if pl.get('document'):
+        pl = {**pl, 'caption': pl['caption'] + '\n\nСкачать для печати: ' + urls[pl['document'].name]}
+        rep['document_url'] = urls[pl['document'].name]
     if not publish:  # Facebook has no unpublished containers to validate against; check the files are hosted
         need = [p.stem + '.jpg' for p in pl.get('slides', [])] or (['image.jpg'] if pl.get('image') else [])
         if pl.get('video'):
