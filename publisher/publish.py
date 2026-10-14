@@ -462,7 +462,8 @@ def run_fb(pl, urls, publish):
                      description=pl['caption'])['id']
     rep['post_id'] = post
     try:
-        rep['url'] = graph(IG_GRAPH, 'GET', post, fields='permalink_url').get('permalink_url')
+        u = graph(IG_GRAPH, 'GET', post, fields='permalink_url').get('permalink_url') or ''
+        rep['url'] = 'https://www.facebook.com' + u if u.startswith('/') else u
     except Fail:
         rep['url'] = f'https://www.facebook.com/{post}'
     return rep
