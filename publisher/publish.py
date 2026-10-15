@@ -186,7 +186,7 @@ def plan_vk(s, cfg):
             photos = [need_file(s['cover'], 'media.cover', exts={'.png', '.jpg', '.jpeg'})]
         else:
             notes.append('reels without media.cover: VK gets text only')
-        notes.append('VK video upload needs a user token: VK gets the cover + text')
+    video = s.get('video') if kind == 'reels' and not cfg.get('cover_only') else None
     doc = None
     if cfg.get('attach_document', True) and s['document']:
         doc = need_file(s['document'], 'media.document', max_mb=200)
@@ -194,7 +194,7 @@ def plan_vk(s, cfg):
         raise Fail(f'VK allows 10 attachments, slot has {len(photos)} photos + {"1 doc" if doc else "no doc"}')
     if not text and not photos and not doc:
         raise Fail('VK post would be empty')
-    return {'kind': kind, 'text': text, 'photos': photos, 'document': doc, 'notes': notes}
+    return {'kind': kind, 'text': text, 'photos': photos, 'document': doc, 'video': video, 'notes': notes}
 
 
 def video_meta(v):
@@ -533,27 +533,78 @@ def vk_upload(url, field, path):
     return body
 
 
+def vk_group_auth_error(e):
+    return 'VK ' in str(e) and ': 27 ' in str(e)  # method is unavailable with a community key
+
+
+def vk_wall_photo(p):
+    """Photo uploaded to the community wall album; needs a user (admin) key."""
+    up = vk('photos.getWallUploadServer', group_id=VK_GROUP)['upload_url']
+    u = vk_upload(up, 'photo', p)
+    if u.get('photo') in (None, '', '[]'):
+        raise Fail(f'VK wall upload of {p.name} returned an empty photo')
+    ph = vk('photos.saveWallPhoto', group_id=VK_GROUP, photo=u['photo'], server=u['server'], hash=u['hash'])[0]
+    return f'photo{ph["owner_id"]}_{ph["id"]}'
+
+
+def vk_message_photo(p):
+    """Fallback for a community key. VK may hide these in wall posts (seen 13-15.10)."""
+    for attempt in range(4):  # pu.vk.com now and then answers with an empty "photo"
+        up = vk('photos.getMessagesUploadServer', peer_id=0)['upload_url']
+        u = vk_upload(up, 'photo', p)
+        if u.get('photo') not in (None, '', '[]'):
+            break
+        time.sleep(2 + 2 * attempt)
+    else:
+        raise Fail(f'VK upload of {p.name} kept returning an empty photo')
+    ph = vk('photos.saveMessagesPhoto', photo=u['photo'], server=u['server'], hash=u['hash'])[0]
+    return f'photo{ph["owner_id"]}_{ph["id"]}' + (f'_{ph["access_key"]}' if ph.get('access_key') else '')
+
+
+def vk_video(v, name):
+    """Video into the community; needs a user (admin) key."""
+    sv = vk('video.save', group_id=VK_GROUP, name=name, wallpost=0)
+    vk_upload(sv['upload_url'], 'video_file', v)
+    return f'video{sv["owner_id"]}_{sv["video_id"]}'
+
+
 def run_vk(pl, publish):
-    rep = {'kind': pl['kind'], 'notes': pl['notes']}
+    rep = {'kind': pl['kind'], 'notes': list(pl['notes'])}
     atts = []
-    if pl['photos']:
-        for p in pl['photos']:
-            for attempt in range(4):  # pu.vk.com now and then answers with an empty "photo"
-                up = vk('photos.getMessagesUploadServer', peer_id=0)['upload_url']
-                u = vk_upload(up, 'photo', p)
-                if u.get('photo') not in (None, '', '[]'):
-                    break
-                time.sleep(2 + 2 * attempt)
-            else:
-                raise Fail(f'VK upload of {p.name} kept returning an empty photo')
-            ph = vk('photos.saveMessagesPhoto', photo=u['photo'], server=u['server'], hash=u['hash'])[0]
-            atts.append(f'photo{ph["owner_id"]}_{ph["id"]}' + (f'_{ph["access_key"]}' if ph.get('access_key') else ''))
-    if pl['document']:
-        up = vk('docs.getWallUploadServer', group_id=VK_GROUP)['upload_url']
-        u = vk_upload(up, 'file', pl['document'])
-        d = vk('docs.save', file=u['file'], title=pl['document'].name)
-        d = d.get('doc', d)
-        atts.append(f'doc{d["owner_id"]}_{d["id"]}' + (f'_{d["access_key"]}' if d.get('access_key') else ''))
+    if not publish:
+        rep['photos'] = [p.name for p in pl['photos']]
+        if pl.get('video'):
+            rep['video'] = Path(pl['video']).name
+    else:
+        video_att = None
+        if pl.get('video'):
+            try:
+                video_att = vk_video(Path(pl['video']), pl['text'].split('\n', 1)[0][:120] or 'Reels')
+            except Fail as e:
+                if not vk_group_auth_error(e):
+                    raise
+                rep['notes'].append('VK video needs a user key: VK gets the cover + text')
+        if video_att:
+            atts.append(video_att)
+        else:
+            wall_ok = True
+            for p in pl['photos']:
+                if wall_ok:
+                    try:
+                        atts.append(vk_wall_photo(p))
+                        continue
+                    except Fail as e:
+                        if not vk_group_auth_error(e):
+                            raise
+                        wall_ok = False
+                        rep['notes'].append('community key: photos go via message upload, VK may hide them on the wall')
+                atts.append(vk_message_photo(p))
+        if pl['document']:
+            up = vk('docs.getWallUploadServer', group_id=VK_GROUP)['upload_url']
+            u = vk_upload(up, 'file', pl['document'])
+            d = vk('docs.save', file=u['file'], title=pl['document'].name)
+            d = d.get('doc', d)
+            atts.append(f'doc{d["owner_id"]}_{d["id"]}' + (f'_{d["access_key"]}' if d.get('access_key') else ''))
     rep['attachments'] = atts
     rep['message_chars'] = len(pl['text'])
     if publish:
