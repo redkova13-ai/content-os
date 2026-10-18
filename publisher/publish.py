@@ -159,7 +159,7 @@ def plan_threads(s, cfg):
     text = read_text(cfg, 'text_file', 'text')
     if len(text) > LIMITS['threads_text']:
         raise Fail(f'Threads text is {len(text)} chars, limit {LIMITS["threads_text"]}')
-    if kind == 'text':
+    if kind == 'text' or cfg.get('text_only'):  # text_only: Threads gets a text post, no media (Тата, 18.10)
         if not text:
             raise Fail('Threads text post needs text')
         return {'kind': 'text', 'text': text}
