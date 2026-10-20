@@ -119,9 +119,45 @@ def slides(s, lo, hi):
     if not d or not d.is_dir():
         raise Fail(f'slides_dir not found: {d}')
     pngs = sorted(d.glob('slide_*.png')) or sorted(d.glob('slide_*.jpg'))
-    if not lo <= len(pngs) <= hi:
-        raise Fail(f'carousel needs {lo}–{hi} slides, found {len(pngs)} in {d}')
-    return pngs
+    # Animated slides (Тата, 20.10): slide_NN.mp4 replaces the still slide_NN.png in the carousel.
+    vids = {v.stem: v for v in d.glob('slide_*.mp4')}
+    out = [vids.pop(p.stem, p) for p in pngs] + list(vids.values())
+    out.sort(key=lambda x: x.stem)
+    if not lo <= len(out) <= hi:
+        raise Fail(f'carousel needs {lo}–{hi} slides, found {len(out)} in {d}')
+    for v in out:
+        if v.suffix == '.mp4':
+            m = video_meta(v)
+            if not m:
+                raise Fail(f'cannot read video slide {v.name}')
+            if not 3 <= m['duration'] <= 60:
+                raise Fail(f'video slide {v.name} is {m["duration"]}s, carousel videos must be 3–60s')
+            if v.stat().st_size > 50 * 2**20:
+                raise Fail(f'video slide {v.name} is over 50 MB')
+    return out
+
+
+def is_video(p):
+    return p.suffix.lower() in ('.mp4', '.mov')
+
+
+def slide_still(p):
+    """A still for platforms that can't take video in a multi-photo post (Facebook): the
+    matching slide_NN.png, else the video's last frame (the accent has fully appeared there)."""
+    if not is_video(p):
+        return p
+    for ext in ('.png', '.jpg'):
+        if p.with_suffix(ext).is_file():
+            return p.with_suffix(ext)
+    out = Path(tempfile.gettempdir()) / (p.stem + '_still.png')
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-sseof', '-0.1', '-i', str(p), '-frames:v', '1', str(out)],
+                   check=True)
+    return out
+
+
+def slide_name(p):
+    """Published file name of a slide (images are re-encoded to JPEG)."""
+    return p.stem + ('.mp4' if is_video(p) else '.jpg')
 
 
 def visual(s):
@@ -249,8 +285,12 @@ def plan_tg(s, cfg):
     msg = ('sendMessage', {'chat_id': TG_CHAT, 'text': text,
                            'link_preview_options': json.dumps({'is_disabled': True})}, {})
     if kind == 'carousel':
-        ph = [need_file(p, 'slide', max_mb=10) for p in slides(s, 2, 10)]
-        media = [{'type': 'photo', 'media': f'attach://p{i}'} for i in range(len(ph))]
+        ph = [need_file(p, 'slide', max_mb=50 if is_video(p) else 10) for p in slides(s, 2, 10)]
+        media = [{'type': 'video' if is_video(p) else 'photo', 'media': f'attach://p{i}'}
+                 for i, p in enumerate(ph)]
+        for m, p in zip(media, ph):
+            if is_video(p):
+                m.update(video_meta(p), supports_streaming=True)
         steps.append(('sendMediaGroup', {'chat_id': TG_CHAT, 'media': json.dumps(media)},
                       {f'p{i}': p for i, p in enumerate(ph)}))
         if text:
@@ -308,6 +348,8 @@ def plan_fb(s, cfg):
     pl = _plan_ig(s, cfg)
     if not pl['caption']:
         raise Fail('Facebook post needs a caption')
+    if pl.get('slides'):  # Page multi-photo posts take photos only: animated slides go as stills
+        pl['slides'] = [slide_still(p) for p in pl['slides']]
     if cfg.get('attach_document'):
         # Pages can't attach files via the API: the free file goes in as a public link at the end.
         if not s['document']:
@@ -360,7 +402,10 @@ def hosting_needs(plans):
         if not pl:
             continue
         for p in pl.get('slides', []):
-            need[p.stem + '.jpg'] = p
+            n = slide_name(p)
+            if n in need and need[n] != p:  # FB still and IG still of the same slide
+                n = p.stem + '_still.jpg'
+            need[n] = p
         if pl.get('image'):
             need['image.jpg'] = pl['image']
         if pl.get('cover'):
@@ -422,10 +467,12 @@ def ig_reels_container(pl, urls):
 def run_ig(pl, urls, publish):
     rep = {'kind': pl['kind']}
     if pl['kind'] == 'carousel':
-        kids = [graph(IG_GRAPH, 'POST', f'{IG_USER}/media', image_url=urls[p.stem + '.jpg'],
+        kids = [graph(IG_GRAPH, 'POST', f'{IG_USER}/media', media_type='VIDEO', video_url=urls[slide_name(p)],
+                      is_carousel_item='true')['id'] if is_video(p) else
+                graph(IG_GRAPH, 'POST', f'{IG_USER}/media', image_url=urls[slide_name(p)],
                       is_carousel_item='true')['id'] for p in pl['slides']]
         for k in kids:
-            wait_container(IG_GRAPH, k, 'status_code')
+            wait_container(IG_GRAPH, k, 'status_code', tries=120)
         cid = graph(IG_GRAPH, 'POST', f'{IG_USER}/media', media_type='CAROUSEL',
                     children=','.join(kids), caption=pl['caption'])['id']
         rep['children'] = kids
