@@ -171,7 +171,7 @@ def plan_threads(s, cfg):
     if kind == 'text' or cfg.get('text_only'):  # text_only: Threads gets a text post, no media (Тата, 18.10)
         if not text:
             raise Fail('Threads text post needs text')
-        return {'kind': 'text', 'text': text}
+        return {'kind': 'text', 'text': text, 'topic_tag': cfg.get('topic_tag')}
     if kind == 'carousel':
         return {'kind': 'carousel', 'text': text, 'slides': slides(s, 2, 20)}
     if kind in ('image', 'story'):
@@ -492,6 +492,8 @@ def run_threads(pl, urls, publish):
     rep = {'kind': pl['kind']}
     base = f'{TH_USER}/threads'
     text = {'text': pl['text']} if pl['text'] else {}
+    if pl.get('topic_tag'):  # one topic tag per post, no # (Тата, 20.10)
+        text['topic_tag'] = pl['topic_tag']
     if pl['kind'] == 'text':
         cid = graph(TH_GRAPH, 'POST', base, media_type='TEXT', **text)['id']
     elif pl['kind'] == 'image':
