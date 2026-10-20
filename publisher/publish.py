@@ -187,7 +187,7 @@ def _plan_ig(s, cfg):
     if cap.count('#') > LIMITS['ig_hashtags']:
         raise Fail(f'IG caption has {cap.count("#")} hashtags, limit {LIMITS["ig_hashtags"]}')
     if kind == 'carousel':
-        return {'kind': kind, 'caption': cap, 'slides': slides(s, 2, 10)}
+        return {'kind': kind, 'caption': cap, 'slides': slides(s, 2, 20)}  # IG takes up to 20 since 2024
     if kind == 'image':
         return {'kind': kind, 'caption': cap, 'image': visual(s)}
     if kind == 'story':
@@ -285,14 +285,17 @@ def plan_tg(s, cfg):
     msg = ('sendMessage', {'chat_id': TG_CHAT, 'text': text,
                            'link_preview_options': json.dumps({'is_disabled': True})}, {})
     if kind == 'carousel':
-        ph = [need_file(p, 'slide', max_mb=50 if is_video(p) else 10) for p in slides(s, 2, 10)]
-        media = [{'type': 'video' if is_video(p) else 'photo', 'media': f'attach://p{i}'}
-                 for i, p in enumerate(ph)]
-        for m, p in zip(media, ph):
-            if is_video(p):
-                m.update(video_meta(p), supports_streaming=True)
-        steps.append(('sendMediaGroup', {'chat_id': TG_CHAT, 'media': json.dumps(media)},
-                      {f'p{i}': p for i, p in enumerate(ph)}))
+        ph = [need_file(p, 'slide', max_mb=50 if is_video(p) else 10) for p in slides(s, 2, 20)]
+        per = -(-len(ph) // -(-len(ph) // 10))  # Telegram albums hold 2–10 items: split evenly
+        for g in range(0, len(ph), per):
+            chunk = ph[g:g + per]
+            media = [{'type': 'video' if is_video(p) else 'photo', 'media': f'attach://p{i}'}
+                     for i, p in enumerate(chunk)]
+            for m, p in zip(media, chunk):
+                if is_video(p):
+                    m.update(video_meta(p), supports_streaming=True)
+            steps.append(('sendMediaGroup', {'chat_id': TG_CHAT, 'media': json.dumps(media)},
+                          {f'p{i}': p for i, p in enumerate(chunk)}))
         if text:
             steps.append(msg)
     elif kind in ('image', 'story'):
