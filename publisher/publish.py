@@ -15,7 +15,7 @@ Auth: Instagram, Threads and VK tokens are injected by the network proxy and nev
 Telegram reads TELEGRAM_BOT_TOKEN from the environment; it is never printed.
 See publisher/README.md for the SLOT_JSON format.
 """
-import argparse, json, os, shutil, subprocess, sys, tempfile, time
+import argparse, json, os, re, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
 
 import requests
@@ -84,13 +84,22 @@ def load_slot(path):
     return s
 
 
+# Тата, 20.10: no Instagram/Facebook/Telegram names in published texts, say «ссылки в шапке профиля»
+BANNED_NETWORK_NAMES = re.compile(r'instagram|facebook|telegram|инстаграм|инсту|фейсбук|телеграм|\bтг\b|\bфб\b', re.I)
+
+
 def read_text(cfg, file_key, inline_key):
     if cfg.get(file_key):
         f = cfg[file_key]
         if not f.is_file():
             raise Fail(f'{file_key} not found: {f}')
-        return f.read_text(encoding='utf-8').strip()
-    return (cfg.get(inline_key) or '').strip()
+        text = f.read_text(encoding='utf-8').strip()
+    else:
+        text = (cfg.get(inline_key) or '').strip()
+    m = BANNED_NETWORK_NAMES.search(text)
+    if m:
+        raise Fail(f'text names a network ({m.group(0)!r}); write «ссылки в шапке профиля» instead')
+    return text
 
 
 def need_file(path, what, max_mb=None, exts=None):
