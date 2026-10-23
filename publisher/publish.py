@@ -85,7 +85,9 @@ def load_slot(path):
 
 
 # Тата, 20.10: no Instagram/Facebook/Telegram names in published texts, say «ссылки в шапке профиля»
-BANNED_NETWORK_NAMES = re.compile(r'instagram|facebook|telegram|инстаграм|инсту|фейсбук|телеграм|\bтг\b|\bфб\b', re.I)
+BANNED_NETWORK_NAMES = re.compile(r'instagram|facebook|telegram|инстаграм|\bинст[аеуы]?\b|инсту|фейсбук|телеграм|\bтг\b|\bфб\b', re.I)
+# Тата, 23.10: the channel is a standalone platform, no «вдогонку к ролику / карусель там, а здесь…»
+TG_CROSS_REF = re.compile(r'вдогонку|в ролике|в рилс|ролик был|карусел[ьи] (в|там)|на слайды не влез|в неё не влез|а здесь|а тут про', re.I)
 
 
 def read_text(cfg, file_key, inline_key):
@@ -279,6 +281,9 @@ def jpeg_copy(img):
 def plan_tg(s, cfg):
     kind = s['kind']
     text = read_text(cfg, 'text_file', 'text')
+    m = TG_CROSS_REF.search(text)
+    if m:
+        raise Fail(f'Telegram text points to another post or network ({m.group(0)!r}); make it standalone')
     if len(text) > LIMITS['tg_text']:
         raise Fail(f'Telegram text is {len(text)} chars, limit {LIMITS["tg_text"]}')
     steps = []  # (method, data, files{field: path})
