@@ -184,7 +184,7 @@ const T03 = {
   // title supports [[highlight]] for the accent bar
   hd: t => md(t).replace(/\[\[(.+?)\]\]/g, '<span class="hl">$1</span>'),
   cover: (s, n) => `<div class="s d"><div style="position:absolute;inset:0;${ph(s, 0, 1.45, [0, 24])}filter:brightness(.8)"></div>
-   <div style="position:absolute;inset:0;background:linear-gradient(90deg,#121214 0%,rgba(18,18,20,.92) 38%,rgba(18,18,20,.35) 62%,rgba(18,18,20,0) 80%)"></div>${T03.top(n)}
+   <div style="position:absolute;inset:0;background:${s.shade === 'top' ? 'linear-gradient(180deg,#121214 0%,rgba(18,18,20,.85) 35%,rgba(18,18,20,.2) 62%,rgba(18,18,20,0) 75%)' : 'linear-gradient(90deg,#121214 0%,rgba(18,18,20,.92) 38%,rgba(18,18,20,.35) 62%,rgba(18,18,20,0) 80%)'}"></div>${T03.top(n)}
    <div class="fit" style="position:absolute;left:70px;top:190px;width:870px;bottom:90px">
      <div class="H">${T03.hd(s.title)}</div>${s.title2 ? `<div class="H2" style="margin-top:22px;width:560px">${md(s.title2)}</div>` : ''}
      ${s.label ? `<div style="width:380px;height:2px;background:rgba(255,255,255,.3);margin:50px 0 36px"></div><div class="box" style="width:440px">
