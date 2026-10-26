@@ -289,8 +289,19 @@ def plan_tg(s, cfg):
     steps = []  # (method, data, files{field: path})
     msg = ('sendMessage', {'chat_id': TG_CHAT, 'text': text,
                            'link_preview_options': json.dumps({'is_disabled': True})}, {})
-    if kind == 'carousel':
-        ph = [need_file(p, 'slide', max_mb=50 if is_video(p) else 10) for p in slides(s, 2, 20)]
+    if kind == 'carousel' and cfg.get('slides', 1) == 1:
+        # Тата 26.10: the full album + the same text reads as a duplicate in Telegram,
+        # so a carousel goes there as its cover + text. "slides": N sends the first N.
+        img = need_file(slides(s, 2, 20)[0], 'slide', max_mb=10, exts={'.png', '.jpg', '.jpeg'})
+        if len(text) <= LIMITS['tg_caption']:
+            d = {'chat_id': TG_CHAT}
+            if text:
+                d['caption'] = text
+            steps.append(('sendPhoto', d, {'photo': img}))
+        else:
+            steps += [('sendPhoto', {'chat_id': TG_CHAT}, {'photo': img}), msg]
+    elif kind == 'carousel':
+        ph = [need_file(p, 'slide', max_mb=50 if is_video(p) else 10) for p in slides(s, 2, 20)[:cfg['slides']]]
         per = -(-len(ph) // -(-len(ph) // 10))  # Telegram albums hold 2–10 items: split evenly
         for g in range(0, len(ph), per):
             chunk = ph[g:g + per]
