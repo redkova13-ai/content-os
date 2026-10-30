@@ -34,11 +34,13 @@ VK_GROUP = 235951709
 VK_OWNER = -VK_GROUP
 TG_API = 'https://api.telegram.org'
 TG_CHAT = '-1002550616198'
+MAX_API = 'https://platform-api.max.ru'
+MAX_CHAT = '-70980778945137'  # MAX channel «Психика без табу»
 
-ORDER = ['ig', 'fb', 'threads', 'vk', 'tg']
+ORDER = ['ig', 'fb', 'threads', 'vk', 'tg', 'max']
 KINDS = {'carousel', 'image', 'reels', 'story', 'text'}
 LIMITS = {'ig_caption': 2200, 'ig_hashtags': 30, 'tg_text': 4096, 'tg_caption': 1024,
-          'vk_text': 16000, 'threads_text': 500}
+          'vk_text': 16000, 'threads_text': 500, 'max_text': 4000}
 MB = 1024 * 1024
 
 
@@ -377,7 +379,34 @@ def plan_fb(s, cfg):
     return pl
 
 
-PLANNERS = {'ig': plan_ig, 'fb': plan_fb, 'threads': plan_threads, 'vk': plan_vk, 'tg': plan_tg}
+def plan_max(s, cfg):
+    """MAX channel (Тата 30.10): the same text and picture as Telegram, one post.
+    Images go by public URL: the MAX upload host is not reachable from here, so a Reels
+    goes as its cover + text."""
+    tg = plan_tg(s, cfg)
+    text = read_text(cfg, 'text_file', 'text')
+    if len(text) > LIMITS['max_text']:
+        raise Fail(f'MAX text is {len(text)} chars, limit {LIMITS["max_text"]}')
+    img = None
+    for method, _, files in tg['steps']:
+        if method == 'sendPhoto':
+            img = files['photo']
+            break
+        if method == 'sendMediaGroup':
+            img = next((p for p in files.values() if not is_video(p)), None)
+            break
+        if method == 'sendVideo':
+            if not s['cover']:
+                raise Fail('MAX needs a Reels cover (video upload is not reachable)')
+            img = need_file(s['cover'], 'media.cover', exts={'.png', '.jpg', '.jpeg'})
+            break
+    if not text and not img:
+        raise Fail('MAX post needs text or a picture')
+    return {'kind': s['kind'], 'text': text, 'image': img}
+
+
+PLANNERS = {'ig': plan_ig, 'fb': plan_fb, 'threads': plan_threads, 'vk': plan_vk, 'tg': plan_tg,
+            'max': plan_max}
 
 
 # ---------------------------------------------------------------- public hosting (repo raw)
@@ -416,6 +445,8 @@ def host(asset_id, files):
 def hosting_needs(plans):
     """Which local files Instagram/Threads must fetch by URL."""
     need = {}
+    if plans.get('max', {}).get('image'):
+        need['max_image.jpg'] = plans['max']['image']
     for k in ('ig', 'fb', 'threads'):
         pl = plans.get(k)
         if not pl:
@@ -728,6 +759,28 @@ def run_tg(pl, publish):
     return rep
 
 
+# ---------------------------------------------------------------- MAX
+
+def run_max(pl, urls, publish):
+    """One channel message: text + picture by URL. The proxy injects the bot token."""
+    body = {'text': pl['text']} if pl['text'] else {}
+    if pl['image']:
+        body['attachments'] = [{'type': 'image', 'payload': {'url': urls['max_image.jpg']}}]
+    rep = {'kind': pl['kind'], 'text_chars': len(pl['text']), 'image': bool(pl['image'])}
+    if not publish:
+        return rep
+    for _ in range(6):  # a fresh attachment can be "not ready" for a few seconds
+        r = requests.post(f'{MAX_API}/messages', params={'chat_id': MAX_CHAT}, json=body, timeout=120)
+        res = r.json()
+        if r.ok and 'message' in res:
+            rep['mid'] = res['message'].get('body', {}).get('mid')
+            return rep
+        if res.get('code') != 'attachment.not.ready':
+            break
+        time.sleep(3)
+    raise Fail(f'MAX messages: {r.status_code} {res.get("code")} {res.get("message")}')
+
+
 # ---------------------------------------------------------------- main
 
 def redact(msg):
@@ -740,7 +793,7 @@ def main():
     ap.add_argument('slot')
     ap.add_argument('--publish', action='store_true', help='actually post (needs --approval)')
     ap.add_argument('--approval', help='GATE 2 approval JSON: {"asset_id":..., "approved_by":..., "approved_at":...}')
-    ap.add_argument('--only', help='comma list of platforms: ig,fb,threads,vk,tg')
+    ap.add_argument('--only', help='comma list of platforms: ig,fb,threads,vk,tg,max')
     a = ap.parse_args()
 
     s = load_slot(a.slot)
@@ -759,6 +812,8 @@ def main():
 
     report = {'asset_id': s['asset_id'], 'kind': s['kind'], 'mode': 'publish' if a.publish else 'dry_run',
               'platforms': {}}
+    if 'tg' in s['platforms'] and 'max' not in s['platforms']:
+        s['platforms']['max'] = s['platforms']['tg']  # MAX mirrors Telegram (Тата 30.10)
     if not s['platforms']:
         sys.exit('BLOCKED: slot names no platform (add "ig": {} etc.), nothing was published')
     plans = {}
@@ -795,7 +850,7 @@ def main():
             continue
         log(f'{k}: {"publishing" if a.publish else "dry run"} ...')
         try:
-            if k in ('ig', 'fb', 'threads') and host_err:
+            if k in ('ig', 'fb', 'threads', 'max') and host_err:
                 raise Fail(host_err)
             if k == 'ig':
                 r = run_ig(plans[k], urls, a.publish)
@@ -805,6 +860,8 @@ def main():
                 r = run_threads(plans[k], urls, a.publish)
             elif k == 'vk':
                 r = run_vk(plans[k], a.publish)
+            elif k == 'max':
+                r = run_max(plans[k], urls, a.publish)
             else:
                 r = run_tg(plans[k], a.publish)
             r['status'] = 'published' if a.publish else 'dry_run_ok'
