@@ -79,7 +79,7 @@ const T01 = {
 .li .t{font:800 32px/1.25 Montserrat;text-transform:uppercase}.li .x{font:500 30px/1.4 Montserrat;margin-top:6px}
 .qt{font:800 italic 58px/1.15 Montserrat;text-transform:uppercase}
 `,
-  pills: c => `<div class="pills" style="color:${c}"><div class="pill">психолог · сексолог</div><div class="pill">@irg_psy</div></div>`,
+  pills: c => `<div class="pills" style="color:${c}"><div class="pill">психолог · сексолог · гипнолог</div><div class="pill">@irg_psy</div></div>`,
   cnt: (n, c) => `<div class="count" style="color:${c}">${n} ⟶</div>`,
   cover: (s, n) => `<div class="s"><div style="position:absolute;inset:0;${ph(s, 0, 1.1, [50, 0])}filter:grayscale(.35) brightness(.62) contrast(1.05)"></div>
    <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(18,18,20,.15) 0%,rgba(18,18,20,0) 30%,rgba(18,18,20,.88) 70%,#121214 100%)"></div>${T01.pills('#F5F5F4')}
@@ -180,7 +180,7 @@ const T03 = {
 .down{text-align:center;font-size:30px;opacity:.6;margin:8px 0}
 .box{border:1.5px solid rgba(255,255,255,.35);border-radius:20px;padding:22px 28px;background:rgba(18,18,20,.4)}
 `,
-  top: n => `<div class="top"><span>Татьяна · психолог, сексолог</span><span class="ln"></span><span class="c"><span>${n}</span></span></div>`,
+  top: n => `<div class="top"><span>Татьяна · психолог, сексолог, гипнолог</span><span class="ln"></span><span class="c"><span>${n}</span></span></div>`,
   // title supports [[highlight]] for the accent bar
   hd: t => md(t).replace(/\[\[(.+?)\]\]/g, '<span class="hl">$1</span>'),
   cover: (s, n) => `<div class="s d"><div style="position:absolute;inset:0;${ph(s, 0, 1.45, [0, 24])}filter:brightness(.8)"></div>

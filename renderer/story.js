@@ -24,7 +24,7 @@ const html = s => `<!doctype html><meta charset="utf-8">${FONTS}<style>
 .s{position:absolute;left:90px;bottom:200px;font:500 30px Inter;color:#C9CACE}
 </style><div class="ph"></div><div class="g"></div>
 <div class="box"><div class="l">${esc(s.label)}</div><div class="t">${esc(s.text)}</div></div>
-<div class="s">Татьяна Иргисцева · психолог, сексолог</div>`;
+<div class="s">Татьяна Иргисцева · психолог, сексолог, гипнолог</div>`;
 
 (async () => {
   const [specPath, outDir] = process.argv.slice(2);
