@@ -775,9 +775,10 @@ def run_max(pl, urls, publish):
         if r.ok and 'message' in res:
             rep['mid'] = res['message'].get('body', {}).get('mid')
             return rep
-        if res.get('code') != 'attachment.not.ready':
+        # a fresh attachment can be "not ready"; a just-pushed image URL can fail to fetch at first (30.10)
+        if res.get('code') != 'attachment.not.ready' and 'Failed to upload image' not in str(res.get('message')):
             break
-        time.sleep(3)
+        time.sleep(10)
     raise Fail(f'MAX messages: {r.status_code} {res.get("code")} {res.get("message")}')
 
 
