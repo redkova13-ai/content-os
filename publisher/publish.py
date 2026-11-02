@@ -55,7 +55,15 @@ def log(*a):
 # ---------------------------------------------------------------- slot loading / validation
 
 def load_slot(path):
-    path = Path(path).resolve()
+    # the shared /mnt mount sometimes drops getcwd for a moment: retry
+    for attempt in range(4):
+        try:
+            path = Path(path).resolve()
+            break
+        except FileNotFoundError:
+            if attempt == 3:
+                raise
+            time.sleep(3)
     slot = json.loads(path.read_text(encoding='utf-8'))
     base = path.parent
 
