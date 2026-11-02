@@ -126,8 +126,8 @@ const T02 = {
   num: (n, c) => `<div class="num"${c ? ` style="color:${c}"` : ''}>${n}</div>`,
   cover: (s, n) => `<div class="s" style="color:#F5F5F4"><div style="position:absolute;inset:0;${ph(s, 0, 1.6, [0, 18])}"></div>
    <div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(43,44,48,.86) 0%,rgba(43,44,48,.55) 45%,rgba(43,44,48,0) 75%)"></div>${T02.num(n, '#D6D0CA')}
-   <div class="fit" style="position:absolute;left:80px;top:150px;width:620px;bottom:420px">
-     <div class="h" style="font-size:90px;color:#F5F5F4">${md(s.title)}${s.title2 ? `<br><em style="color:#D6D0CA">${md(s.title2)}</em>` : ''}</div></div>
+   <div class="fit" style="position:absolute;left:80px;top:${s.title_top || 150}px;width:${s.title_width || 620}px;bottom:${s.title_bottom || 420}px">
+     <div class="h" style="font-size:${s.title_size || 90}px;color:#F5F5F4">${md(s.title)}${s.title2 ? `<br><em style="color:#D6D0CA">${md(s.title2)}</em>` : ''}</div></div>
    ${s.label ? `<div class="p" style="position:absolute;left:80px;bottom:110px;width:500px;color:#E7E8EA">${md(s.label)}</div>` : ''}<div class="arrow">→</div></div>`,
   text: (s, n) => s.photo
     ? `<div class="s"><div style="position:absolute;right:0;top:0;bottom:0;width:440px;${ph(s, 0, 3.0, [60, 30])}"></div>${T02.num(n)}
