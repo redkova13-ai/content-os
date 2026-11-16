@@ -87,7 +87,7 @@ def load_slot(path):
     for k in ORDER:
         if k in slot and slot[k] is not None:
             cfg = dict(slot[k])
-            for f in ('caption_file', 'text_file', 'first_comment_file'):
+            for f in ('caption_file', 'text_file', 'first_comment_file', 'more_file', 'text2_file'):
                 if cfg.get(f):
                     cfg[f] = p(cfg[f])
             s['platforms'][k] = cfg
@@ -288,28 +288,65 @@ def jpeg_copy(img):
     return out
 
 
+def split_caption(text, limit=1000):
+    """Cut text into a caption head (<= limit) and a tail at the last paragraph,
+    line or sentence break before the limit."""
+    if len(text) <= LIMITS['tg_caption']:
+        return text, ''
+    win = text[:limit]
+    for sep in ('\n\n', '\n', '. ', '! ', '? ', '… '):
+        i = win.rfind(sep)
+        if i > limit // 3:
+            cut = i + (1 if sep[0] in '.!?…' else 0)
+            return text[:cut].rstrip(), text[cut:].strip()
+    i = win.rfind(' ')
+    return text[:i].rstrip(), text[i:].strip()
+
+
+def tg_text_parts(cfg):
+    """Тата 16.11: TG and MAX post = picture with caption up to ~1000 chars, then the rest
+    right after as a plain text message. "more"/"more_file" gives the continuation explicitly;
+    otherwise a long text is split at a paragraph break."""
+    text = read_text(cfg, 'text_file', 'text')
+    more = read_text(cfg, 'more_file', 'more') or read_text(cfg, 'text2_file', 'text2')
+    for t in (text, more):
+        m = TG_CROSS_REF.search(t)
+        if m:
+            raise Fail(f'Telegram text points to another post or network ({m.group(0)!r}); make it standalone')
+    if more:
+        if len(text) > LIMITS['tg_caption']:
+            raise Fail(f'Telegram caption is {len(text)} chars with a separate continuation, limit {LIMITS["tg_caption"]}')
+        return text, more
+    return split_caption(text)
+
+
 def plan_tg(s, cfg):
     kind = s['kind']
     text = read_text(cfg, 'text_file', 'text')
-    m = TG_CROSS_REF.search(text)
-    if m:
-        raise Fail(f'Telegram text points to another post or network ({m.group(0)!r}); make it standalone')
-    if len(text) > LIMITS['tg_text']:
-        raise Fail(f'Telegram text is {len(text)} chars, limit {LIMITS["tg_text"]}')
+    head, tail = tg_text_parts(cfg)
+    for t in (text, tail):
+        if len(t) > LIMITS['tg_text']:
+            raise Fail(f'Telegram text is {len(t)} chars, limit {LIMITS["tg_text"]}')
     steps = []  # (method, data, files{field: path})
-    msg = ('sendMessage', {'chat_id': TG_CHAT, 'text': text,
-                           'link_preview_options': json.dumps({'is_disabled': True})}, {})
+
+    def message(t):
+        return ('sendMessage', {'chat_id': TG_CHAT, 'text': t,
+                                'link_preview_options': json.dumps({'is_disabled': True})}, {})
+
+    def photo_post(img):
+        d = {'chat_id': TG_CHAT}
+        if head:
+            d['caption'] = head
+        steps.append(('sendPhoto', d, {'photo': img}))
+        if tail:
+            steps.append(message(tail))
+
+    full = (head + '\n\n' + tail).strip() if any(cfg.get(k) for k in ('more', 'more_file', 'text2', 'text2_file')) else text
+    msg = message(full)
     if kind == 'carousel' and cfg.get('slides', 1) == 1:
         # Тата 26.10: the full album + the same text reads as a duplicate in Telegram,
         # so a carousel goes there as its cover + text. "slides": N sends the first N.
-        img = need_file(slides(s, 2, 20)[0], 'slide', max_mb=10, exts={'.png', '.jpg', '.jpeg'})
-        if len(text) <= LIMITS['tg_caption']:
-            d = {'chat_id': TG_CHAT}
-            if text:
-                d['caption'] = text
-            steps.append(('sendPhoto', d, {'photo': img}))
-        else:
-            steps += [('sendPhoto', {'chat_id': TG_CHAT}, {'photo': img}), msg]
+        photo_post(need_file(slides(s, 2, 20)[0], 'slide', max_mb=10, exts={'.png', '.jpg', '.jpeg'}))
     elif kind == 'carousel':
         ph = [need_file(p, 'slide', max_mb=50 if is_video(p) else 10) for p in slides(s, 2, 20)[:cfg['slides']]]
         per = -(-len(ph) // -(-len(ph) // 10))  # Telegram albums hold 2–10 items: split evenly
@@ -322,24 +359,13 @@ def plan_tg(s, cfg):
                     m.update(video_meta(p), supports_streaming=True)
             steps.append(('sendMediaGroup', {'chat_id': TG_CHAT, 'media': json.dumps(media)},
                           {f'p{i}': p for i, p in enumerate(chunk)}))
-        if text:
+        if full:
             steps.append(msg)
     elif kind in ('image', 'story'):
-        img = need_file(visual(s), 'media.image', max_mb=10)
-        if len(text) <= LIMITS['tg_caption']:
-            d = {'chat_id': TG_CHAT}
-            if text:
-                d['caption'] = text
-            steps.append(('sendPhoto', d, {'photo': img}))
-        else:
-            steps += [('sendPhoto', {'chat_id': TG_CHAT}, {'photo': img}), msg]
+        photo_post(need_file(visual(s), 'media.image', max_mb=10))
     elif kind == 'reels' and cfg.get('cover_only'):
         # Reels whose text repeats the video: Telegram gets the cover + text, no video.
-        img = need_file(s['cover'], 'media.cover', max_mb=10, exts={'.png', '.jpg', '.jpeg'})
-        if len(text) <= LIMITS['tg_caption']:
-            steps.append(('sendPhoto', {'chat_id': TG_CHAT, 'caption': text}, {'photo': img}))
-        else:
-            steps += [('sendPhoto', {'chat_id': TG_CHAT}, {'photo': img}), msg]
+        photo_post(need_file(s['cover'], 'media.cover', max_mb=10, exts={'.png', '.jpg', '.jpeg'}))
     elif kind == 'reels':
         v = need_file(s['video'], 'media.video', max_mb=50, exts={'.mp4'})
         # Without explicit size and a cover Telegram shows big videos squashed.
@@ -356,10 +382,10 @@ def plan_tg(s, cfg):
             vf['cv'] = jpeg_copy(need_file(s['cover'], 'media.cover', exts={'.png', '.jpg', '.jpeg'}))
             vd['cover'] = 'attach://cv'
         steps.append(('sendVideo', vd, vf))
-        if text:
+        if full:
             steps.append(msg)
     elif kind == 'text':
-        if not text:
+        if not full:
             raise Fail('Telegram text post needs text')
         steps.append(msg)
     if cfg.get('attach_document') and s['document']:
@@ -392,9 +418,10 @@ def plan_max(s, cfg):
     Images go by public URL: the MAX upload host is not reachable from here, so a Reels
     goes as its cover + text."""
     tg = plan_tg(s, cfg)
-    text = read_text(cfg, 'text_file', 'text')
-    if len(text) > LIMITS['max_text']:
-        raise Fail(f'MAX text is {len(text)} chars, limit {LIMITS["max_text"]}')
+    text, more = tg_text_parts(cfg)
+    for t in (text, more):
+        if len(t) > LIMITS['max_text']:
+            raise Fail(f'MAX text is {len(t)} chars, limit {LIMITS["max_text"]}')
     img = None
     for method, _, files in tg['steps']:
         if method == 'sendPhoto':
@@ -410,7 +437,9 @@ def plan_max(s, cfg):
             break
     if not text and not img:
         raise Fail('MAX post needs text or a picture')
-    return {'kind': s['kind'], 'text': text, 'image': img}
+    if not img and more:  # no picture: one plain message, like Telegram
+        text, more = (text + '\n\n' + more).strip(), ''
+    return {'kind': s['kind'], 'text': text, 'more': more, 'image': img}
 
 
 PLANNERS = {'ig': plan_ig, 'fb': plan_fb, 'threads': plan_threads, 'vk': plan_vk, 'tg': plan_tg,
@@ -775,14 +804,22 @@ def run_max(pl, urls, publish):
     if pl['image']:
         body['attachments'] = [{'type': 'image', 'payload': {'url': urls['max_image.jpg']}}]
     rep = {'kind': pl['kind'], 'text_chars': len(pl['text']), 'image': bool(pl['image'])}
+    if pl.get('more'):
+        rep['more_chars'] = len(pl['more'])
     if not publish:
         return rep
+    rep['mid'] = max_send(body)
+    if pl.get('more'):  # Тата 16.11: the rest of the text right after, as its own message
+        rep['more_mid'] = max_send({'text': pl['more']})
+    return rep
+
+
+def max_send(body):
     for _ in range(6):  # a fresh attachment can be "not ready" for a few seconds
         r = requests.post(f'{MAX_API}/messages', params={'chat_id': MAX_CHAT}, json=body, timeout=120)
         res = r.json()
         if r.ok and 'message' in res:
-            rep['mid'] = res['message'].get('body', {}).get('mid')
-            return rep
+            return res['message'].get('body', {}).get('mid')
         # a fresh attachment can be "not ready"; a just-pushed image URL can fail to fetch at first (30.10)
         if res.get('code') != 'attachment.not.ready' and 'Failed to upload image' not in str(res.get('message')):
             break
